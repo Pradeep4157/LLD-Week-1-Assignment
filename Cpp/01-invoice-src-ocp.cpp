@@ -30,6 +30,17 @@ process function:
 
     4) printing .. this also can have diff methods.., currently it uses PDF with
 
+    now the discount part is done..
+
+    now we need to implement the printing part..
+
+    so we will create the type of printing that we need , we can do it with one of these 2 ways :
+
+    i) create a factory to dynamically create the type on the basis of input .
+
+    ii) just create a type of our choice in main()..
+
+
 
 
 
@@ -93,14 +104,14 @@ private:
 class InvoiceRenderer
 {
 public:
-    virtual string render(vector<LineItem> &items_, double subTotal_, double discount_, double tax_, double grand_) = 0;
+    virtual string render(const vector<LineItem> &items_, double subTotal_, double discount_, double tax_, double grand_) = 0;
 };
 class PdfRenderer : public InvoiceRenderer
 {
 public:
     PdfRenderer() {}
 
-    string render(vector<LineItem> &items, double subTotal, double discount, double tax, double grand) override
+    string render(const vector<LineItem> &items, double subTotal, double discount, double tax, double grand) override
     {
         // rendering inline (pretend PDF)
         ostringstream pdf;
@@ -116,12 +127,13 @@ public:
         return pdf.str();
     }
 };
+
 class InvoiceService
 {
 public:
     string process(const vector<LineItem> &items,
-                   const map<string, double> &discounts,
-                   const string &email)
+                   const vector<Discount *> &discounts,
+                   const string &email, InvoiceRenderer *renderer)
     {
         // pricing
         double subtotal = 0.0;
@@ -132,25 +144,13 @@ public:
         double discount_total = 0.0;
         for (auto &kv : discounts)
         {
-            const string &k = kv.first;
-            double v = kv.second;
-            if (k == "percent_off")
-            {
-                discount_total += subtotal * (v / 100.0);
-            }
-            else if (k == "flat_off")
-            {
-                discount_total += v;
-            }
-            else
-            {
-                // unknown ignored
-            }
+            discount_total += kv->apply(subtotal);
         }
 
         // tax inline
         double tax = (subtotal - discount_total) * 0.18;
         double grand = subtotal - discount_total + tax;
+        string res = renderer->render(items, subtotal, discount_total, tax, grand);
 
         // email I/O inline (tight coupling)
         if (!email.empty())
@@ -160,19 +160,39 @@ public:
 
         // logging inline
         cout << "[LOG] Invoice processed for " << email << " total=" << grand << "\n";
+        return res;
     }
 
     // helper used by ad-hoc tests; also messy on purpose
     double computeTotal(const vector<LineItem> &items,
-                        const map<string, double> &discounts)
+                        const vector<Discount *> &discounts, InvoiceRenderer *renderer)
     {
         string dummyEmail = "noreply@example.com";
-        auto rendered = process(items, discounts, dummyEmail);
+        auto rendered = process(items, discounts, dummyEmail, renderer);
         auto pos = rendered.rfind("Total:");
         if (pos == string::npos)
             throw runtime_error("No total");
         auto line = rendered.substr(pos + 6);
         return stod(line);
+    }
+};
+class DiscountFactory
+{
+public:
+    static Discount *create(string type, double val)
+    {
+        if (type == "percent_off")
+        {
+            return new PercentDiscount(val);
+        }
+        else if (type == "flat_off")
+        {
+            return new FlatDiscount(val);
+        }
+        else
+        {
+            return nullptr;
+        }
     }
 };
 
@@ -181,7 +201,17 @@ int main()
     InvoiceService svc;
     // Create items
     vector<LineItem> items = {{"ITEM-001", 3, 100.0}, {"ITEM-002", 1, 250.0}};
-    map<string, double> discounts = {{"percent_off", 10.0}};
-    cout << svc.process(items, discounts, "customer@example.com") << endl;
+    map<string, double> Discounts = {{"percent_off", 10.0}};
+    vector<Discount *> discounts;
+    DiscountFactory discountFactory;
+    for (auto &a : Discounts)
+    {
+        string type = a.first;
+        double val = a.second;
+        discounts.push_back(discountFactory.create(type, val));
+    }
+    InvoiceRenderer *renderer = new PdfRenderer();
+
+    cout << svc.process(items, discounts, "customer@example.com", renderer) << endl;
     return 0;
 }
