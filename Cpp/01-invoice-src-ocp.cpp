@@ -1,11 +1,6 @@
 
 // 01-invoice-srp-ocp.cpp
-#include <iostream>
-#include <sstream>
-#include <string>
-#include <vector>
-#include <map>
-#include <stdexcept>
+#include <bits/stdc++.h>
 
 using namespace std;
 
@@ -39,6 +34,12 @@ process function:
     i) create a factory to dynamically create the type on the basis of input .
 
     ii) just create a type of our choice in main()..
+
+    I dint use TaxCalculator class..
+
+    so i create object of this class and pass it in Invoice Service or create object inside Invoice Service class ?
+
+    so we create that object in main class and inject it in InvoiceService..
 
 
 
@@ -127,10 +128,52 @@ public:
         return pdf.str();
     }
 };
+class Logger
+{
+public:
+    virtual void log(const string &email, const double &grand) = 0;
+};
+class ConsoleLogger : public Logger
+{
+public:
+    void log(const string &email, const double &grand) override
+    {
+
+        if (!email.empty())
+        {
+            cout << "[SMTP] Sending invoice to " << email << "...\n";
+
+            cout << "[LOG] Invoice processed for " << email << " total=" << grand << "\n";
+        }
+    }
+};
+class FileLogger : public Logger
+{
+public:
+    FileLogger(const string &filename_)
+    {
+        logfile.open(filename_, ios::app);
+    }
+    void log(const string &email, const double &grand) override
+    {
+        logfile << "[SMTP] Sending invoice to " << email << "...\n";
+
+        logfile << "[LOG] Invoice processed for " << email << " total=" << grand << "\n";
+    }
+    ~FileLogger()
+    {
+        if (logfile.is_open())
+            logfile.close();
+    }
+
+private:
+    ofstream logfile;
+};
 
 class InvoiceService
 {
 public:
+    InvoiceService(TaxCalculator *taxCalc_) : taxCalc(taxCalc_) {};
     string process(const vector<LineItem> &items,
                    const vector<Discount *> &discounts,
                    const string &email, InvoiceRenderer *renderer)
@@ -148,18 +191,10 @@ public:
         }
 
         // tax inline
-        double tax = (subtotal - discount_total) * 0.18;
+        double tax = taxCalc->taxFinder(subtotal - discount_total);
         double grand = subtotal - discount_total + tax;
         string res = renderer->render(items, subtotal, discount_total, tax, grand);
 
-        // email I/O inline (tight coupling)
-        if (!email.empty())
-        {
-            cout << "[SMTP] Sending invoice to " << email << "...\n";
-        }
-
-        // logging inline
-        cout << "[LOG] Invoice processed for " << email << " total=" << grand << "\n";
         return res;
     }
 
@@ -175,6 +210,9 @@ public:
         auto line = rendered.substr(pos + 6);
         return stod(line);
     }
+
+private:
+    TaxCalculator *taxCalc;
 };
 class DiscountFactory
 {
@@ -198,7 +236,8 @@ public:
 
 int main()
 {
-    InvoiceService svc;
+    TaxCalculator *taxCalc = new IndiaTaxCalculator();
+    InvoiceService svc(taxCalc);
     // Create items
     vector<LineItem> items = {{"ITEM-001", 3, 100.0}, {"ITEM-002", 1, 250.0}};
     map<string, double> Discounts = {{"percent_off", 10.0}};
