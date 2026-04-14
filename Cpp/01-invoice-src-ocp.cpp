@@ -42,6 +42,13 @@ process function:
     so we create that object in main class and inject it in InvoiceService..
 
 
+    have patially implemented the email Service thing but there should multiple logs method instead of just
+
+    console log..
+
+
+
+
 
 
 
@@ -128,73 +135,72 @@ public:
         return pdf.str();
     }
 };
-class Logger
+
+class EmailService
 {
 public:
-    virtual void log(const string &email, const double &grand) = 0;
+    virtual void sendInvoice(const string &email, const string &content) = 0;
 };
-class ConsoleLogger : public Logger
+class SmtpEmailService : public EmailService
 {
 public:
-    void log(const string &email, const double &grand) override
+    void sendInvoice(const string &email, const string &content) override
     {
-
-        if (!email.empty())
-        {
-            cout << "[SMTP] Sending invoice to " << email << "...\n";
-
-            cout << "[LOG] Invoice processed for " << email << " total=" << grand << "\n";
-        }
+        cout << "[SMTP] Sending invoice to " << email << "...\n";
+        cout << "------ EMAIL CONTENT ------\n";
+        cout << content << "\n";
+        cout << "---------------------------\n";
     }
 };
-class FileLogger : public Logger
+
+double calculateSubTotal(const vector<LineItem> &items)
 {
-public:
-    FileLogger(const string &filename_)
+    // pricing
+    double subtotal = 0.0;
+    for (auto &it : items)
+        subtotal += it.unitPrice * it.quantity;
+    return subtotal
+}
+double applyDiscounts(const vector<Discount *> &discounts)
+{
+    double discount_total = 0.0;
+    for (auto &kv : discounts)
     {
-        logfile.open(filename_, ios::app);
+        discount_total += kv->apply(subtotal);
     }
-    void log(const string &email, const double &grand) override
-    {
-        logfile << "[SMTP] Sending invoice to " << email << "...\n";
-
-        logfile << "[LOG] Invoice processed for " << email << " total=" << grand << "\n";
-    }
-    ~FileLogger()
-    {
-        if (logfile.is_open())
-            logfile.close();
-    }
-
-private:
-    ofstream logfile;
-};
-
+    return discount_total;
+}
+double calculateTax(TaxCalculater *taxCalc, const double &subtotal, const double &discount_total)
+{
+    double tax = taxCalc->taxFinder(subtotal - discount_total);
+    return tax;
+}
+double calculateGrand(const double &subtotal, const double &discount_total, const double &tax)
+{
+    double grand = subtotal - discount_total + tax;
+    return grand;
+}
 class InvoiceService
 {
 public:
-    InvoiceService(TaxCalculator *taxCalc_) : taxCalc(taxCalc_) {};
+    InvoiceService(TaxCalculator *taxCalc_, EmailService *emailService_) : taxCalc(taxCalc_), emailService(emailService_) {};
     string process(const vector<LineItem> &items,
                    const vector<Discount *> &discounts,
                    const string &email, InvoiceRenderer *renderer)
     {
-        // pricing
-        double subtotal = 0.0;
-        for (auto &it : items)
-            subtotal += it.unitPrice * it.quantity;
-
+        double subtotal = calculateSubTotal(items);
         // discounts (tightly coupled)
-        double discount_total = 0.0;
-        for (auto &kv : discounts)
-        {
-            discount_total += kv->apply(subtotal);
-        }
-
+        double discount_total = applyDiscounts(discounts);
         // tax inline
-        double tax = taxCalc->taxFinder(subtotal - discount_total);
-        double grand = subtotal - discount_total + tax;
+        double tax = calculateTax(taxCalc, subtotal, discount_total);
+        double grand = calculateGrand(subtotal, discount_total, tax);
         string res = renderer->render(items, subtotal, discount_total, tax, grand);
-
+        // need to use logger here...
+        // sending email..
+        if (!email.empty())
+        {
+            emailService.sendInvoice(email, )
+        }
         return res;
     }
 
@@ -212,7 +218,7 @@ public:
     }
 
 private:
-    TaxCalculator *taxCalc;
+    TaxCalculator *taxCalc, EmailService *emailService;
 };
 class DiscountFactory
 {
@@ -237,7 +243,8 @@ public:
 int main()
 {
     TaxCalculator *taxCalc = new IndiaTaxCalculator();
-    InvoiceService svc(taxCalc);
+    EmailService *emailService = new SmtpEmailService();
+    InvoiceService svc(taxCalc, emailService);
     // Create items
     vector<LineItem> items = {{"ITEM-001", 3, 100.0}, {"ITEM-002", 1, 250.0}};
     map<string, double> Discounts = {{"percent_off", 10.0}};
