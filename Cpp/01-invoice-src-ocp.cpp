@@ -47,17 +47,26 @@ process function:
     console log..
 
 
+    need to fix the memory leaks..
+
+
 
 
 
 
 
 */
+
 struct LineItem
 {
     string sku;
     int quantity{0};
     double unitPrice{0.0};
+};
+class Logger
+{
+public:
+    virtual void log(const string &message) = 0;
 };
 class TaxCalculator
 {
@@ -159,9 +168,9 @@ double calculateSubTotal(const vector<LineItem> &items)
     double subtotal = 0.0;
     for (auto &it : items)
         subtotal += it.unitPrice * it.quantity;
-    return subtotal
+    return subtotal;
 }
-double applyDiscounts(const vector<Discount *> &discounts)
+double applyDiscounts(const vector<Discount *> &discounts, const double &subtotal)
 {
     double discount_total = 0.0;
     for (auto &kv : discounts)
@@ -170,7 +179,7 @@ double applyDiscounts(const vector<Discount *> &discounts)
     }
     return discount_total;
 }
-double calculateTax(TaxCalculater *taxCalc, const double &subtotal, const double &discount_total)
+double calculateTax(TaxCalculator *taxCalc, const double &subtotal, const double &discount_total)
 {
     double tax = taxCalc->taxFinder(subtotal - discount_total);
     return tax;
@@ -190,7 +199,7 @@ public:
     {
         double subtotal = calculateSubTotal(items);
         // discounts (tightly coupled)
-        double discount_total = applyDiscounts(discounts);
+        double discount_total = applyDiscounts(discounts, subtotal);
         // tax inline
         double tax = calculateTax(taxCalc, subtotal, discount_total);
         double grand = calculateGrand(subtotal, discount_total, tax);
@@ -199,7 +208,7 @@ public:
         // sending email..
         if (!email.empty())
         {
-            emailService.sendInvoice(email, )
+            emailService->sendInvoice(email, res);
         }
         return res;
     }
@@ -218,27 +227,41 @@ public:
     }
 
 private:
-    TaxCalculator *taxCalc, EmailService *emailService;
+    TaxCalculator *taxCalc;
+    EmailService *emailService;
 };
 class DiscountFactory
 {
 public:
-    static Discount *create(string type, double val)
+    using Creator = function<Discount *(double)>;
+    static void registerType(const string &type, Creator creator)
     {
-        if (type == "percent_off")
+        getRegistery()[type] = creator;
+    }
+    static Discount *create(const string &type, const double &val)
+    {
+        auto it = getRegistery().find(type);
+        if (it != getRegistery().end())
         {
-            return new PercentDiscount(val);
+            return it->second(val);
         }
-        else if (type == "flat_off")
-        {
-            return new FlatDiscount(val);
-        }
-        else
-        {
-            return nullptr;
-        }
+        return nullptr;
+    }
+
+private:
+    static unordered_map<string, Creator> &getRegistery()
+    {
+        static unordered_map<string, Creator> registery;
+        return registery;
     }
 };
+void registerDiscounts()
+{
+    DiscountFactory::registerType("percent_off", [](double val)
+                                  { return new PercentDiscount(val); });
+    DiscountFactory::registerType("flat_off", [](double val)
+                                  { return new FlatDiscount(val); });
+}
 
 int main()
 {
@@ -249,12 +272,13 @@ int main()
     vector<LineItem> items = {{"ITEM-001", 3, 100.0}, {"ITEM-002", 1, 250.0}};
     map<string, double> Discounts = {{"percent_off", 10.0}};
     vector<Discount *> discounts;
-    DiscountFactory discountFactory;
+    registerDiscounts();
     for (auto &a : Discounts)
     {
         string type = a.first;
         double val = a.second;
-        discounts.push_back(discountFactory.create(type, val));
+
+        discounts.push_back(DiscountFactory::create(type, val));
     }
     InvoiceRenderer *renderer = new PdfRenderer();
 
