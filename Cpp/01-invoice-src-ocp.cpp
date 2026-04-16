@@ -189,28 +189,44 @@ double calculateGrand(const double &subtotal, const double &discount_total, cons
     double grand = subtotal - discount_total + tax;
     return grand;
 }
+struct InvoiceResult
+{
+    double subTotal;
+    double discount_total;
+    double tax;
+    double grand;
+    double total;
+    string renderInvoice = "";
+};
 class InvoiceService
 {
 public:
     InvoiceService(TaxCalculator *taxCalc_, EmailService *emailService_) : taxCalc(taxCalc_), emailService(emailService_) {};
-    string process(const vector<LineItem> &items,
-                   const vector<Discount *> &discounts,
-                   const string &email, InvoiceRenderer *renderer)
+    InvoiceResult process(const vector<LineItem> &items,
+                          const vector<Discount *> &discounts,
+                          const string &email, InvoiceRenderer *renderer)
     {
+        InvoiceResult invoiceResult;
+
         double subtotal = calculateSubTotal(items);
         // discounts (tightly coupled)
         double discount_total = applyDiscounts(discounts, subtotal);
         // tax inline
         double tax = calculateTax(taxCalc, subtotal, discount_total);
         double grand = calculateGrand(subtotal, discount_total, tax);
+        invoiceResult.subTotal = subtotal;
+        invoiceResult.discount_total = discount_total;
+        invoiceResult.tax = tax;
+        invoiceResult.total = grand;
         string res = renderer->render(items, subtotal, discount_total, tax, grand);
+        invoiceResult.renderInvoice = res;
         // need to use logger here...
         // sending email..
         if (!email.empty())
         {
             emailService->sendInvoice(email, res);
         }
-        return res;
+        return invoiceResult;
     }
 
     // helper used by ad-hoc tests; also messy on purpose
@@ -219,11 +235,10 @@ public:
     {
         string dummyEmail = "noreply@example.com";
         auto rendered = process(items, discounts, dummyEmail, renderer);
-        auto pos = rendered.rfind("Total:");
-        if (pos == string::npos)
+
+        if (!rendered.total)
             throw runtime_error("No total");
-        auto line = rendered.substr(pos + 6);
-        return stod(line);
+        return rendered.total;
     }
 
 private:
