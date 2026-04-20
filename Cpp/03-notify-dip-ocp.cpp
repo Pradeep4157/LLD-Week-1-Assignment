@@ -17,18 +17,30 @@ using namespace std;
 
 */
 
-class SmtpMailer
+class IEmailService
 {
 public:
-    void send(const string &templ, const string &to, const string &body)
+    virtual void send(const string &templ, const string &to, const string &body) = 0;
+    virtual ~IEmailService() = default;
+};
+class ISmsService
+{
+public:
+    virtual void sendOTP(const string &phone, const string &code) = 0;
+    virtual ~ISmsService() = default;
+};
+class SmtpMailer : public IEmailService
+{
+public:
+    void send(const string &templ, const string &to, const string &body) override
     {
         cout << "[SMTP] template=" << templ << " to=" << to << " body=" << body << "\n";
     }
 };
-class TwilioClient
+class TwilioClient : public ISmsService
 {
 public:
-    void sendOTP(const string &phone, const string &code)
+    void sendOTP(const string &phone, const string &code) override
     {
         cout << "[Twilio] OTP " << code << " -> " << phone << "\n";
     }
@@ -39,7 +51,7 @@ struct User
     string email;
     string phone;
 };
-void handleWelcomeMessage(const string &email, SmtpMailer &mailer)
+void handleWelcomeMessage(const string &email, IEmailService &mailer)
 {
     mailer.send("welcome", email, "Welcome!");
 }
@@ -49,11 +61,39 @@ string generateOTP()
 
     return to_string(otp);
 }
-void handleSendOTP(const string &phone, TwilioClient &sms)
+void handleSendOTP(const string &phone, ISmsService &sms)
 {
     const string otp = generateOTP();
     sms.sendOTP(phone, otp);
 }
+class INotificationHandler
+{
+public:
+    virtual void handle(User &user) = 0;
+};
+class WelcomeEmailHandler : public INotificationHandler
+{
+    IEmailService &mailer;
+
+public:
+    WelcomeEmailHandler(IEmailService &mailer_) : mailer(mailer_) {};
+    void handle(User &user) override
+    {
+        handleWelcomeMessage(user.email, mailer);
+    }
+};
+class OtpHandler : public INotificationHandler
+{
+    ISmsService &sms;
+
+public:
+    OtpHandler(ISmsService &sms_) : sms(sms_) {};
+    void handle(User &user) override
+    {
+
+        handleSendOTP(user.phone, sms);
+    }
+};
 class SignUpService
 {
 public:
@@ -61,12 +101,7 @@ public:
     {
         if (u.email.empty())
             return false;
-        // pretend DB save here…
-
-        // hard-coded providers
-        SmtpMailer mailer;
         handleWelcomeMessage(u.email, mailer);
-        TwilioClient sms;
         handleSendOTP(u.phone, sms);
         return true;
     }
@@ -74,6 +109,7 @@ public:
 
 int main()
 {
+
     SignUpService svc;
     svc.signUp({"user@example.com", "+15550001111"});
     return 0;
