@@ -1,7 +1,5 @@
 // 03-notify-dip-ocp.cpp
-#include <iostream>
-#include <string>
-
+#include <bits/stdc++.h>
 using namespace std;
 
 /*
@@ -69,7 +67,7 @@ void handleSendOTP(const string &phone, ISmsService &sms)
 class INotificationHandler
 {
 public:
-    virtual void handle(User &user) = 0;
+    virtual void handle(const User &user) = 0;
 };
 class WelcomeEmailHandler : public INotificationHandler
 {
@@ -77,7 +75,7 @@ class WelcomeEmailHandler : public INotificationHandler
 
 public:
     WelcomeEmailHandler(IEmailService &mailer_) : mailer(mailer_) {};
-    void handle(User &user) override
+    void handle(const User &user) override
     {
         handleWelcomeMessage(user.email, mailer);
     }
@@ -88,7 +86,7 @@ class OtpHandler : public INotificationHandler
 
 public:
     OtpHandler(ISmsService &sms_) : sms(sms_) {};
-    void handle(User &user) override
+    void handle(const User &user) override
     {
 
         handleSendOTP(user.phone, sms);
@@ -96,13 +94,18 @@ public:
 };
 class SignUpService
 {
+    vector<unique_ptr<INotificationHandler>> handlers;
+
 public:
+    SignUpService(vector<unique_ptr<INotificationHandler>> handlers_) : handlers(move(handlers_)) {};
     bool signUp(const User &u)
     {
         if (u.email.empty())
             return false;
-        handleWelcomeMessage(u.email, mailer);
-        handleSendOTP(u.phone, sms);
+        for (auto &a : handlers)
+        {
+            a->handle(u);
+        }
         return true;
     }
 };
@@ -110,7 +113,12 @@ public:
 int main()
 {
 
-    SignUpService svc;
+    vector<unique_ptr<INotificationHandler>> handlers;
+    SmtpMailer mailer;
+    TwilioClient sms;
+    handlers.push_back(make_unique<WelcomeEmailHandler>(mailer));
+    handlers.push_back(make_unique<OtpHandler>(sms));
+    SignUpService svc(move(handlers));
     svc.signUp({"user@example.com", "+15550001111"});
     return 0;
 }
